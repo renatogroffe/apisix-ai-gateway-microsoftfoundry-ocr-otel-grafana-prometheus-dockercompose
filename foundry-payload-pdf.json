@@ -1,0 +1,13 @@
+{
+  "input": [{
+    "role": "user",
+    "content": [
+      {
+        "type": "input_file",
+        "filename": "documento.pdf",
+        "file_data": "data:application/pdf;base64,PDF_BASE64_ENCODED_CONTENT"
+      },
+      { "type": "input_text", "text": "Analise este PDF e resuma." }
+    ]
+  }]
+}

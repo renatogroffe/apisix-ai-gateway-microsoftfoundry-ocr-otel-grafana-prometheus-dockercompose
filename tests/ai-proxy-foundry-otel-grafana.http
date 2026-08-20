@@ -1,0 +1,179 @@
+@APISIX_ADMIN_KEY=edd1c9f034335f136f87ad84b625c8f1
+@CLIENT_API_KEY=abcdefghijk2026xyz
+@CLIENT_API_KEY_2=abcdefghijk2026xyzmno
+@DEPLOYMENT_NAME_AZURE=gpt-5.5
+@ROUTE_APISIX=/azure/foundry-ai
+@FOUNDRY_KEY=MICROSOFT_FOUNDRY_KEY
+@RESOURCE_NAME_AZURE=MICROSOFT_FOUNDRY_RESOURCE
+@AZURE_AI_API_VERSION=2024-10-21
+
+###
+###
+# PASSO 1: Configurar traces do APISIX para OpenTelemetry
+curl http://127.0.0.1:9180/apisix/admin/plugin_metadata/opentelemetry -H "X-API-KEY: {{APISIX_ADMIN_KEY}}" -X PUT -d '
+{
+    "trace_id_source": "x-request-id",
+    "resource": {
+      "service.name": "APISIX",
+      "deployment.environment.name": "development"
+    },
+    "collector": {
+      "address": "alloy:4318",
+      "request_timeout": 3,
+      "request_headers": {
+      }
+    },
+    "batch_span_processor": {
+      "drop_on_queue_full": false,
+      "max_queue_size": 1024,
+      "batch_timeout": 2,
+      "inactive_timeout": 1,
+      "max_export_batch_size": 16
+    },
+    "set_ngx_var": false
+}'
+
+
+###
+# PASSO 2: Criar o Consumer com a API Key do cliente.
+curl "http://127.0.0.1:9180/apisix/admin/consumers" -X PUT \
+  -H "X-API-KEY: {{APISIX_ADMIN_KEY}}" \
+  -d '{
+    "username": "consoleappchatai",
+    "plugins": {
+      "key-auth": {
+        "key": "{{CLIENT_API_KEY}}"
+      }
+    }
+  }'
+
+
+###
+# PASSO 3: Criar segundo Consumer com a API Key do cliente.
+curl "http://127.0.0.1:9180/apisix/admin/consumers" -X PUT \
+  -H "X-API-KEY: {{APISIX_ADMIN_KEY}}" \
+  -d '{
+    "username": "consoleappchatai2",
+    "plugins": {
+      "key-auth": {
+        "key": "{{CLIENT_API_KEY_2}}"
+      }
+    }
+  }'
+
+
+###
+# PASSO 4.1: Criar a rota com ai-proxy-multi exigindo a API Key do cliente.
+
+curl "http://127.0.0.1:9180/apisix/admin/routes" -X PUT \
+  -H "X-API-KEY: {{APISIX_ADMIN_KEY}}" \
+  -d '{
+    "id": "azure-ai-foundry-images-test",
+    "uri": "{{ROUTE_APISIX}}/{{DEPLOYMENT_NAME_AZURE}}-images/*",
+    "methods": ["POST"],
+    "plugins": {
+      "key-auth": {},
+      "consumer-restriction": {
+          "whitelist": [
+              "consoleappchatai"
+          ]
+      },
+      "opentelemetry": {
+        "sampler": {
+          "name": "always_on"
+        }
+      },
+      "ai-proxy-multi": {
+          "instances": [
+            {
+              "name": "foundry-gpt-5.5",
+              "provider": "azure-openai",
+              "weight": 1,
+              "auth": {
+                "header": {
+                  "api-key": "{{FOUNDRY_KEY}}"
+                }
+              },
+              "options": {
+                "model": "{{DEPLOYMENT_NAME_AZURE}}"
+              },
+              "timeout": 120000,
+              "override": {
+                "endpoint": "https://{{RESOURCE_NAME_AZURE}}.openai.azure.com/openai/deployments/{{DEPLOYMENT_NAME_AZURE}}/chat/completions?api-version={{AZURE_AI_API_VERSION}}"
+              }
+            }
+          ],
+          "balancer": {
+            "algorithm": "roundrobin"
+          }
+      }
+    },
+    "upstream": {
+      "type": "roundrobin",
+      "nodes": {
+        "httpbin.org": 1
+      }
+    }
+  }'
+
+###
+
+
+
+###
+# PASSO 4.2: Criar a rota PDF com ai-proxy-multi (Azure Responses API).
+# Use openai-compatible (não azure-openai): o provider azure-openai remove o "model"
+# do body, mas a Responses API exige o nome do deployment em "model".
+# A URI do cliente deve terminar em /v1/responses para o APISIX detectar o protocolo.
+
+curl "http://127.0.0.1:9180/apisix/admin/routes" -X PUT \
+  -H "X-API-KEY: {{APISIX_ADMIN_KEY}}" \
+  -d '{
+    "id": "azure-ai-foundry-pdfs-test",
+    "uri": "{{ROUTE_APISIX}}/{{DEPLOYMENT_NAME_AZURE}}-pdfs/v1/responses",
+    "methods": ["POST"],
+    "plugins": {
+      "key-auth": {},
+      "consumer-restriction": {
+          "whitelist": [
+              "consoleappchatai"
+          ]
+      },
+      "opentelemetry": {
+        "sampler": {
+          "name": "always_on"
+        }
+      },
+      "ai-proxy-multi": {
+          "instances": [
+            {
+              "name": "foundry-gpt-5.5",
+              "provider": "openai-compatible",
+              "weight": 1,
+              "auth": {
+                "header": {
+                  "api-key": "{{FOUNDRY_KEY}}"
+                }
+              },
+              "options": {
+                "model": "{{DEPLOYMENT_NAME_AZURE}}"
+              },
+              "timeout": 120000,
+              "override": {
+                "endpoint": "https://{{RESOURCE_NAME_AZURE}}.openai.azure.com/openai/v1/responses"
+              }
+            }
+          ],
+          "balancer": {
+            "algorithm": "roundrobin"
+          }
+      }
+    },
+    "upstream": {
+      "type": "roundrobin",
+      "nodes": {
+        "httpbin.org": 1
+      }
+    }
+  }'
+

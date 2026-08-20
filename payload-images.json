@@ -1,0 +1,16 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        { "type": "text", "text": "Analise esta imagem e descreva o que se encontra escrito na mesma." },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "data:image/png;base64,IMAGE_BASE64_ENCODED_CONTENT"
+          }
+        }
+      ]
+    }
+  ]
+}
